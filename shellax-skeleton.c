@@ -6,8 +6,11 @@
 #include <sys/wait.h>
 #include <termios.h> // termios, TCSANOW, ECHO, ICANON
 #include <unistd.h>
+#include <fcntl.h>
 const char *sysname = "shellax";
 #define MAX_STRING_LENGTH 256
+#define BUFF_SIZE 1000
+
 
 enum return_codes {
   SUCCESS = 0,
@@ -302,6 +305,9 @@ int prompt(struct command_t *command) {
   return SUCCESS;
 }
 int process_command(struct command_t *command);
+void redirect(struct command_t *command);
+int createpipe(struct command_t *command,int amount1);
+int amountpipes(struct command_t *command);
 int main() {
   while (1) {
     struct command_t *command = malloc(sizeof(struct command_t));
@@ -339,7 +345,6 @@ int process_command(struct command_t *command) {
       return SUCCESS;
     }
   }
-
   pid_t pid = fork();
   if (pid == 0) // child
   {
@@ -353,15 +358,32 @@ int process_command(struct command_t *command) {
 
     // TODO: do your own exec with path resolving using execv()
     // do so by replacing the execvp call below
-    char path[MAX_STRING_LENGTH];
-    strcpy(path,"/bin/");
-    strcat(path,command->name);
-    if (execv(path, command->args) < 0) {
-        printf("** ERROR: exec failed\n");
-        exit(1);
+      
+    //REDIRECT
+    int amount= amountpipes(command);
+    if(amount > 0){
+      createpipe(command,amount);
     }
+    
+    else{
+        char path[MAX_STRING_LENGTH];
+        strcpy(path,"/bin/");
+        strcat(path,command->name);
+        if (execv(path, command->args) < 0) {
+            printf("Command not found!\n");
+            exit(1);
+        }
+    }
+      
+    
+      
+      // EXECUTE COMMAND
+      
+
     exit(0);
-  } else {
+      
+  }
+  else {
     // TODO: implement background processes here
     wait(0); // wait for child process to finish
     return SUCCESS;
@@ -372,3 +394,113 @@ int process_command(struct command_t *command) {
   printf("-%s: %s: command not found\n", sysname, command->name);
   return UNKNOWN;
 }
+
+void redirect(struct command_t *command){
+    // ONLY READ REDIRECTION
+    if(strcmp(command->redirects[0],"N/A")!=0){
+
+        int in = open(command->redirects[0],O_RDONLY);
+        if (dup2(in, STDIN_FILENO) < 0) {
+            printf("Unable to read the file.");
+            exit(EXIT_FAILURE);
+        }
+        close(in);
+    }
+  
+    // ONLY WRITE REDIRECTION
+    if(strcmp(command->redirects[1],"N/A")!=0){
+        int out = open(command->redirects[1], 0644);
+        if(dup2(out, STDOUT_FILENO) < 0){
+            printf("Unable to write the file.");
+            exit(EXIT_FAILURE);
+        }
+        close(out);
+    }
+  
+    //APPEND REDIRECTION
+    if(strcmp(command->redirects[2],"N/A")!=0){
+        int append = open(command->redirects[2], O_CREAT | O_RDWR | O_APPEND, 0644);
+        if(dup2(append, STDOUT_FILENO) < 0){
+            printf("Unable to append the file.");
+            exit(EXIT_FAILURE);
+        }
+        close(append);
+    }
+}
+
+
+int createpipe(struct command_t *command,int amount1){
+    int i = 0;
+    int index = 0;
+    int amount = amount1;
+    int pipecount= amount*2;
+    int wr[amount*2];
+
+    struct command_t *c= command;
+    pid_t pid;
+            
+    //CREATING ALL PIPES
+    for(i = 0; i < (amount); i++){
+        if(pipe(wr + i*2) < 0) {
+            perror("Error occured during piping");
+            exit(1);
+        }
+    }
+    // CHECKING ALL PIPES DURING LOOP
+    while(c != NULL) {
+        pid = fork();
+        if(pid == 0) {
+            if(c->next){
+                int fdr1 = dup2(wr[index + 1], 1);
+                
+                if(fdr1 < 0){
+                    perror("Error occured during piping");
+                    exit(1);
+                }
+            }
+            if(index != 0 ){
+                int fdr2 = dup2(wr[index-2], 0);
+                if(fdr2 < 0){
+                    perror("Error occured during piping!");
+                    exit(1);
+                }
+            }
+            for(i = 0; i < (amount*2); i++){
+                    close(wr[i]);
+            }
+            int process =execvp(c->name,c->args);
+            if(process < 0 ){
+                    perror("Error occured during piping");
+                    exit(1);
+            }
+        }
+        else if(pid < 0){
+            perror("Error occured during piping");
+            exit(1);
+        }
+        index += 2;
+        c = c->next;
+    }
+    // CLOSING THE CHILD PIPES
+    for(int a = 0; a < pipecount; a++){
+        close(wr[a]);
+    }
+    // WAIT FOR THE CHILD PROCESSES FINISH
+    for(int a = 0; a < (amount + 1); a++){
+            wait(0);
+    }
+    return 0;
+}
+
+
+int amountpipes(struct command_t *command){
+    struct command_t *c=command->next;
+    int i=0;
+    while(c!=NULL){
+        c=c->next;
+        i++;
+    }
+    return i;
+    
+}
+

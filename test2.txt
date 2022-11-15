@@ -1,0 +1,79 @@
+    
+    if(command->next == NULL){
+        return -1;
+    }
+    
+    int wr[2];
+    if(pipe(wr)==-1){
+        perror("Pipe couldn't be created!");
+        return 1;
+    }
+    int pid1;
+    struct command_t *command1= command->next;
+    if(command1!= NULL){
+        pid1= fork();
+    }
+    else{
+        close(wr[0]);
+        close(wr[1]);
+        return -1;
+    }
+    
+    if(pid1 < 0){
+        return 2;
+    }
+    if(pid1==0){
+        printf("tureeeee");
+        dup2(wr[1],STDOUT_FILENO);
+        if(command1->arg_count > 2){
+            execlp(command1->name,command1->args[1],NULL);
+        }
+        else{
+            execlp(command1->name,command1->name,NULL);
+        }
+        close(wr[0]);
+        close(wr[1]);
+    }
+    else{
+        close(1);
+        dup(wr[1]);
+        close(wr[0]);
+        if(command1->arg_count > 2){
+            execlp(command->name,command->args[1],NULL);
+        }
+        else{
+            execlp(command->name,command->name,NULL);
+        }
+        
+    }
+    
+    int pid2;
+    struct command_t *command2= command1->next;
+    if(command2!=NULL){
+        pid2= fork();
+    }else{
+        close(wr[0]);
+        close(wr[1]);
+        return -1;
+    }
+    if(pid2 < 0){
+        return 3;
+    }
+    if(pid2==0){
+        printf("tureeeee22");
+        dup2(wr[1],STDIN_FILENO);
+        if(command2->arg_count > 2){
+            execlp(command2->name,command2->args[1],NULL);
+        }
+        else{
+            execlp(command2->name,command2->name,NULL);
+        }
+        close(wr[0]);
+        close(wr[1]);
+    }
+    
+    
+    close(wr[0]);
+    close(wr[1]);
+    waitpid(pid1,NULL,0);
+    return 0;
