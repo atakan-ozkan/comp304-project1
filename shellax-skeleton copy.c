@@ -320,8 +320,8 @@ int amountredirections(struct command_t *command);
 int execCommand(struct command_t *command);
 int getDictionaryItem(struct dictionary_t *dict,char* key);
 void deleteDictionaryItem(struct dictionary_t *dict,char* key);
-void addDictionaryItem(struct dictionary_t *dict,char* key,int value);
-void uniq(char* words,char* param);
+void addDictionaryItem(struct dictionary_t **dict,char* key,int value);
+void uniq(char** words,char* param);
 
 int main() {
   while (1) {
@@ -346,7 +346,6 @@ int main() {
 
 int process_command(struct command_t *command) {
   int r;
-
   if (strcmp(command->name, "") == 0)
     return SUCCESS;
 
@@ -376,78 +375,28 @@ int process_command(struct command_t *command) {
     // do so by replacing the execvp call below
       
     //REDIRECT
-      int amount= amountpipes(command);
-      
-      int amount1=1;
-  
-    char path[MAX_STRING_LENGTH];
-    strcpy(path,"/bin/");
-    strcat(path,command->name);
 
-    int input_redirection=0,output_redirection=0;
-    int in,out;
+    print_command(command);
+    int amount= amountpipes(command);
 
-    if(amount1>199){
-      if(strcmp(command->redirects[1],"N/A")!=0 && strcmp(command->redirects[0],"N/A")!=0){
-          input_redirection=1;
-          output_redirection=1;
-      }
-      else if(strcmp(command->redirects[0],"N/A")!=0){
-          input_redirection=1;
-      }
-      else if(strcmp(command->redirects[1],"N/A")!=0){
-          output_redirection=1;
-      }
-      
 
-      if(output_redirection==1){
-          out= creat(command->redirects[1],0644);
-          if(out<0){
-              fprintf(stderr, "Failed writing on %d\n", out);
-              return(EXIT_FAILURE);
-          }
-          if(dup2(out, 1) < 0){
-              printf("Unable to write the file.");
-              exit(EXIT_FAILURE);
-          }
-          close(out);
-          output_redirection=0;
-      }
-      
-      if(input_redirection==1){
-          in= open(command->redirects[1], 0644);
-          if(in<0){
-              in=creat(command->redirects[0],0644);
-          }
-          if(in<0){
-              fprintf(stderr, "Failed reading on %d\n", in);
-              return(EXIT_FAILURE);
-          }
-          if(dup2(in, 0) < 0){
-              printf("Unable to read the file.");
-              exit(EXIT_FAILURE);
-          }
-          close(in);
-          input_redirection=0;
-      }
-      close(in);
-      close(out);
-          
+    if(amount > 0){
+      createpipe(command,amount);
     }
-      if(amount > 0){
-        createpipe(command,amount);
-      }
-      else if (execv(path, command->args) < 0) {
-          perror("Command not found!");
-          return -1;
-      }
+    else{
+        execCommand(command);
+    }
+      
+      
+      // EXECUTE COMMAND
+      
 
     exit(0);
       
   }
   else {
     // TODO: implement background processes here
-      waitpid(pid, 0, 0);   // wait for child process to finish
+    wait(0); // wait for child process to finish
     return SUCCESS;
   }
 
@@ -512,9 +461,6 @@ int createpipe(struct command_t *command,int amount1)
     int amount = amount1;
     int pipecount= amount*2;
     int wr[amount*2];
-    int fd;
-    char buffer[100];
-    char msg[100];
 
     struct command_t *c= command;
     pid_t pid;
@@ -549,12 +495,7 @@ int createpipe(struct command_t *command,int amount1)
                     close(wr[i]);
             }
             if(strcmp(c->name,"uniq") == 0){
-                if(c->arg_count>2){
-                    uniq(c->name,c->args[1]);
-                }
-                else{
-                    uniq(c->name,"");
-                }
+                uniq(c->args,"");
             }
             else{
                 int process =execvp(c->name,c->args);
@@ -623,7 +564,6 @@ int execCommand(struct command_t *command)
         
         if (execv(path, command->args) < 0) {
             perror("Command not found!");
-            return -1;
         }
         exit(0);
     } else {
@@ -633,33 +573,21 @@ int execCommand(struct command_t *command)
 }
   
 
-void uniq(char* command,char* param){
+void uniq(char** words,char* param){
     struct dictionary_t **dict = malloc(sizeof(struct dictionary_t));
-    char buffer[1024];
-    char msg[1024];
-    char* token;
-    strcat(command," ");
-    strcat(command,param);
-    FILE *file = popen(command,"r");
-    memset( buffer, '\0', sizeof( buffer ));
-    while(fgets(buffer,100,file)!=NULL){
-        strcat(msg,buffer);
-    }
-    token= strtok(msg,"\n");
-
-    while(token != NULL){
-        int amount = getDictionaryItem(*dict,token);
+    size_t size= sizeof(words)/sizeof(words[0]);
+    
+    for(int i=0;i<size;i++){
+        int amount = getDictionaryItem(*dict,words[i]);
+        
         if(amount==0){
-            addDictionaryItem(*dict,token,1);
+            addDictionaryItem(dict,words[i],1);
         }
         else{
-            deleteDictionaryItem(*dict,token);
-            addDictionaryItem(*dict,token,amount+1);
+            deleteDictionaryItem(*dict,words[i]);
+            addDictionaryItem(dict,words[i],amount+1);
         }
-        printf("%s\n",token);
-        token = strtok(NULL,"\n");
     }
-    
     
     struct dictionary_t *temp_dict= *dict;
     while(temp_dict != NULL){
@@ -672,9 +600,8 @@ void uniq(char* command,char* param){
         }
         temp_dict= temp_dict->next;
     }
-    free(dict);
-    pclose(file);
     
+    free(dict);
 }
 
 
@@ -717,11 +644,11 @@ void deleteDictionaryItem(struct dictionary_t *dict,char* key){
     
 }
 
-void addDictionaryItem(struct dictionary_t *dict,char* key,int value){
+void addDictionaryItem(struct dictionary_t **dict,char* key,int value){
     struct dictionary_t *temp = malloc(sizeof(struct dictionary_t));
-    temp->key= malloc(1+strlen(key));
-    strcpy(temp->key,strdup(key));
     temp->value= value;
-    temp->next=dict;
-    dict=temp;
+    temp->key= malloc(1+strlen(key));
+    strcpy(temp->key,key);
+    temp->next=*dict;
+    *dict=temp;
 }
