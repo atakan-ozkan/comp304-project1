@@ -7,6 +7,8 @@
 #include <termios.h> // termios, TCSANOW, ECHO, ICANON
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 const char *sysname = "shellax";
 #define MAX_STRING_LENGTH 256
 #define BUFF_SIZE 1000
@@ -321,6 +323,8 @@ int execCommand(struct command_t *command);
 int getDictionaryItem(struct dictionary_t *dict,char* key);
 void deleteDictionaryItem(struct dictionary_t *dict,char* key);
 void addDictionaryItem(struct dictionary_t *dict,char* key,int value);
+void chat(char* roomname, char* username);
+
 void uniq(char* words,char* param);
 
 int main() {
@@ -376,70 +380,25 @@ int process_command(struct command_t *command) {
     // do so by replacing the execvp call below
       
     //REDIRECT
-      int amount= amountpipes(command);
-      
-      int amount1=1;
+    int amount= amountpipes(command);
+
+    
   
     char path[MAX_STRING_LENGTH];
-    strcpy(path,"/bin/");
-    strcat(path,command->name);
+    sprintf(path,"/bin/%s",command->name);
 
     int input_redirection=0,output_redirection=0;
     int in,out;
 
-    if(amount1>199){
-      if(strcmp(command->redirects[1],"N/A")!=0 && strcmp(command->redirects[0],"N/A")!=0){
-          input_redirection=1;
-          output_redirection=1;
-      }
-      else if(strcmp(command->redirects[0],"N/A")!=0){
-          input_redirection=1;
-      }
-      else if(strcmp(command->redirects[1],"N/A")!=0){
-          output_redirection=1;
-      }
-      
-
-      if(output_redirection==1){
-          out= creat(command->redirects[1],0644);
-          if(out<0){
-              fprintf(stderr, "Failed writing on %d\n", out);
-              return(EXIT_FAILURE);
-          }
-          if(dup2(out, 1) < 0){
-              printf("Unable to write the file.");
-              exit(EXIT_FAILURE);
-          }
-          close(out);
-          output_redirection=0;
-      }
-      
-      if(input_redirection==1){
-          in= open(command->redirects[1], 0644);
-          if(in<0){
-              in=creat(command->redirects[0],0644);
-          }
-          if(in<0){
-              fprintf(stderr, "Failed reading on %d\n", in);
-              return(EXIT_FAILURE);
-          }
-          if(dup2(in, 0) < 0){
-              printf("Unable to read the file.");
-              exit(EXIT_FAILURE);
-          }
-          close(in);
-          input_redirection=0;
-      }
-      close(in);
-      close(out);
-          
-    }
-      if(amount > 0){
+      if(strcmp(command->name,"chatroom") == 0||amount > 0){
         createpipe(command,amount);
       }
       else if (execv(path, command->args) < 0) {
           perror("Command not found!");
           return -1;
+      }
+      else{
+          redirect(command);
       }
 
     exit(0);
@@ -459,6 +418,12 @@ int process_command(struct command_t *command) {
 
 int redirect(struct command_t *command)
 {
+    int amount= amountredirections(command);
+    
+    if(amount <= 0 ){
+        return 0;
+    }
+    
     char* input_file, output_file;
     int input_redirection=0,output_redirection=0;
     
@@ -555,6 +520,9 @@ int createpipe(struct command_t *command,int amount1)
                 else{
                     uniq(c->name,"");
                 }
+            }
+            if(strcmp(c->name,"chatroom") == 0){
+                chat(c->args[1],c->args[2]);
             }
             else{
                 int process =execvp(c->name,c->args);
@@ -724,4 +692,68 @@ void addDictionaryItem(struct dictionary_t *dict,char* key,int value){
     temp->value= value;
     temp->next=dict;
     dict=temp;
+}
+
+
+
+void chat(char* roomname, char* username){
+    char str1[100]="";
+    char str2[100]="";
+    char str3[100]="";
+    sprintf(str1,"/tmp/chatroom-%s",roomname);
+    sprintf(str2,"/tmp/chatroom-%s/%s",roomname,username);
+    sprintf(str3,"/tmp/chatroom-%s/server",roomname);
+    struct stat st = {0};
+
+    if (stat(str1, &st) == -1) {
+        mkdir(str1, 0700);
+    }
+    
+    creat(str2,0644);
+    creat(str3,0644);
+    int clientPipe = open(str2,O_RDWR);
+    int serverPipe = open(str3,O_RDWR);
+    pid_t pid;
+    char* buffer[BUFF_SIZE];
+    char message[256];
+    int size;
+    int save= dup(fileno(stdin));
+    int load= dup(fileno(stdout));
+    
+    printf("Welcome to %s\n",roomname);
+    
+    while(1){
+        pid= fork();
+        if(pid == 0)
+        {
+            while(1){
+                
+                while((size=read(clientPipe,&buffer,BUFF_SIZE)) > 0){
+                    write(fileno(stdout), &buffer, size*sizeof(char));
+                }
+            }
+        }
+        else{
+            while(1){
+               fgets(message, 255,stdin);
+                char msg[256];
+                sprintf(msg,"[%s] %s : %s",roomname,username,message);
+                printf("%s",msg);
+                if(strcmp(message,"exit")==0){
+                    close(clientPipe);
+                    close(serverPipe);
+                    exit(EXIT_SUCCESS);
+                }
+               write(serverPipe,msg,(strlen(message)+1)*sizeof(char));
+            }
+        }
+        close(clientPipe);
+        close(serverPipe);
+        fflush(stdin);
+        fflush(stdout);
+        dup2(save,fileno(stdin));
+        dup2(load, fileno(stdout));
+        exit(EXIT_SUCCESS);
+    }
+    
 }
