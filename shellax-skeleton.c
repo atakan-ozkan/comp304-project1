@@ -325,8 +325,9 @@ int getDictionaryItem(struct dictionary_t *dict,char* key);
 void deleteDictionaryItem(struct dictionary_t *dict,char* key);
 void addDictionaryItem(struct dictionary_t *dict,char* key,int value);
 void chat(char* roomname, char* username);
-
+void palindrome(int arg_count,char** args);
 void uniq(char* words,char* param);
+void mycp(char *src, char *dst);
 
 int main() {
   while (1) {
@@ -383,15 +384,16 @@ int process_command(struct command_t *command) {
     //REDIRECT
     int amount= amountpipes(command);
 
-    
-  
+
     char path[MAX_STRING_LENGTH];
     sprintf(path,"/bin/%s",command->name);
 
     int input_redirection=0,output_redirection=0;
     int in,out;
 
-      if(strcmp(command->name,"chatroom") == 0||amount > 0){
+      if(strcmp(command->name,"mycp") == 0 ||
+         strcmp(command->name,"palindrome") == 0 ||
+          strcmp(command->name,"chatroom") == 0 || amount > 0){
         createpipe(command,amount);
       }
       else if (execv(path, command->args) < 0) {
@@ -522,7 +524,22 @@ int createpipe(struct command_t *command,int amount1)
                     uniq(c->name,"");
                 }
             }
-            if(strcmp(c->name,"chatroom") == 0){
+            else if(strcmp(c->name,"palindrome")==0 ){
+                if(c->arg_count >= 3){
+                    palindrome(c->arg_count,c->args);
+                }
+                else{
+                    perror("palindrome command takes more than 1 argument!");
+                }
+            }
+            else if(strcmp(c->name,"mycp") == 0){
+                  if(c->arg_count != 4) perror("2 text files must be given");
+                  else if(strcmp(c->args[1],c->args[2]) == 0) perror("File names must be different");
+                  else{
+                    mycp(c->args[1], c->args[2]);
+              }
+            }
+            else if(strcmp(c->name,"chatroom") == 0){
                 chat(c->args[1],c->args[2]);
             }
             else{
@@ -771,4 +788,50 @@ void chat(char* roomname, char* username){
         dup2(load, fileno(stdout));
         exit(EXIT_SUCCESS);
     }
+}
+
+
+
+void palindrome(int arg_count,char** args){
+    int index=1;
+    int size= arg_count;
+    bool check= true;
+    int count =1;
+    while(index < size){
+        if(args[index]==NULL){
+            break;
+        }
+        check= true;
+        int head = 0;
+        int tail =strlen(args[index])-1;
+        while(tail>head){
+            if(args[index][head++] != args[index][tail--]){
+                check =false;
+            }
+        }
+        
+        if(check){
+            printf("%d. %s\n",count,args[index]);
+            count++;
+        }
+        index++;
+    }
+    if(count ==1){
+        printf("There is no palindrome words in the arguments.");
+    }
+    printf("\n");
+}
+
+
+void mycp(char *src, char *dst){
+  char buffer[1024];
+  int position;
+
+  FILE *infile = popen(src,"r");
+  FILE *outfile = popen(dst, "w");
+
+  while (fgets(buffer,100,infile)!=NULL) {
+    write(fileno(outfile), &buffer, 1024);
+  }
+
 }
