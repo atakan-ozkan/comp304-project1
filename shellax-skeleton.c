@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <dirent.h>
 const char *sysname = "shellax";
 #define MAX_STRING_LENGTH 256
 #define BUFF_SIZE 1000
@@ -709,16 +710,25 @@ void chat(char* roomname, char* username){
         mkdir(str1, 0700);
     }
     
-    creat(str2,0644);
-    creat(str3,0644);
-    int clientPipe = open(str2,O_RDWR);
-    int serverPipe = open(str3,O_RDWR);
+    int clientPipe = open(str2, O_CREAT|O_WRONLY);
+    int serverPipe = open(str3, O_CREAT|O_WRONLY);
+    int otherclients;
     pid_t pid;
     char* buffer[BUFF_SIZE];
     char message[256];
     int size;
     int save= dup(fileno(stdin));
     int load= dup(fileno(stdout));
+    
+    struct dirent *currentdir;
+    DIR *dir = opendir(str1);
+
+   if (dir == NULL)
+   {
+       printf("Could not open current directory" );
+       exit(EXIT_FAILURE);
+   }
+    
     
     printf("Welcome to %s\n",roomname);
     
@@ -735,16 +745,22 @@ void chat(char* roomname, char* username){
         }
         else{
             while(1){
-               fgets(message, 255,stdin);
+                fgets(message, 255,stdin);
+                message[strlen(message)-1]= '\0';
                 char msg[256];
                 sprintf(msg,"[%s] %s : %s",roomname,username,message);
-                printf("%s",msg);
+                printf("%s\n",msg);
                 if(strcmp(message,"exit")==0){
                     close(clientPipe);
                     close(serverPipe);
                     exit(EXIT_SUCCESS);
                 }
-               write(serverPipe,msg,(strlen(message)+1)*sizeof(char));
+                while((currentdir = readdir(dir)) !=NULL){
+                    char str[100];
+                    sprintf(str,"/tmp/chatroom-%s/%s",roomname,currentdir->d_name);
+                    otherclients = open(str, O_CREAT|O_WRONLY);
+                    write(otherclients,&buffer,size*sizeof(char));
+                }
             }
         }
         close(clientPipe);
@@ -755,5 +771,4 @@ void chat(char* roomname, char* username){
         dup2(load, fileno(stdout));
         exit(EXIT_SUCCESS);
     }
-    
 }
